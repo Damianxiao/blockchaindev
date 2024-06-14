@@ -6,12 +6,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"hash"
+	"math/big"
 	"sort"
 	"strings"
 )
 
 // if state is nil
-var emptyRoot = hash.Hash{}
+var emptyRoot = hash.BigToHash(big.NewInt(0))
 
 // trie struct
 type ITrie interface {
@@ -22,6 +23,7 @@ type ITrie interface {
 	Load(key []byte) ([]byte, error)
 }
 
+// state is the entrance of trie , provide the root of trie
 type State struct {
 	root *TrieNode
 	db   kvstore.KVDatabase
@@ -56,6 +58,7 @@ func (Children Children) Swap(i, j int) {
 	Children[i], Children[j] = Children[j], Children[i]
 }
 
+// create a new trieTree or retrieve the trieTree from db
 func NewState(db kvstore.KVDatabase, root hash.Hash) *State {
 	if bytes.Equal(root[:], emptyRoot[:]) {
 		return &State{
@@ -78,6 +81,7 @@ func NewState(db kvstore.KVDatabase, root hash.Hash) *State {
 	}
 }
 
+// get node by bytes
 func TrieNodeFromBytes(data []byte) *TrieNode {
 	var node TrieNode
 	err := rlp.DecodeBytes(data, &node)
@@ -137,24 +141,29 @@ func (state *State) UpdateParents(path string, hash hash.Hash, paths []string, h
 	// connect the whole paths to one string
 	prefix := strings.Join(paths, "")
 	depth := len(paths)
+	// if the path is the same as the prefix , prove the path is complete match a single node
 	if strings.EqualFold(path, prefix) {
 		// update, because the path is the same , we do update , not insert
 		node := state.TrieNodeFromHash(hashes[depth-1]) // get the leaf
 		node.value = hash
 		state.SaveTrieNode(*node)
 		childHash := node.Hash()
-		path := node.Path
 		// from the last second node to the root
 		for i := depth - 2; i >= 0; i-- {
 			node := state.TrieNodeFromHash(hashes[i])
 			// update the children collection
 			for _, child := range node.Children {
 				if child.Path == paths[i] {
-					state.SaveTrieNode(*node)
 					child.Hash = childHash
+					state.SaveTrieNode(*node)
+					// this Hash() should calculate the new hash of the node include the new child
+					childHash = node.Hash()
 					path = child.Path
 					break
 				}
+			}
+			if i == 0 {
+				state.root = node
 			}
 			// modify the value of the node
 			node.value = childHash
@@ -164,8 +173,11 @@ func (state *State) UpdateParents(path string, hash hash.Hash, paths []string, h
 	} else {
 		// the node is not exist ,do insert. use hashes get the lastnode of the new node
 		lastNode := state.TrieNodeFromHash(hashes[depth-1])
-		if len(lastNode.path) != len(paths[depth-1]) {
+
+		if len(lastNode.Path) != len(paths[depth-1]) {
 			// need fork
+			prefix := strings.Join(paths, "")
+			length := lengthPrefix(lastNode.Path, paths[depth-1])
 
 		} else {
 			//insert
@@ -174,7 +186,7 @@ func (state *State) UpdateParents(path string, hash hash.Hash, paths []string, h
 	}
 }
 
-// return the same part of prefix
+// return the array of paths and hashes
 func (state State) FindParents(path string) ([]string, []hash.Hash) {
 	// from the root to the leaf
 	current := state.root

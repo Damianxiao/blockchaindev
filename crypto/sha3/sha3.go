@@ -2,10 +2,12 @@ package sha3
 
 import (
 	"golang.org/x/crypto/sha3"
-	"blockchaindev/utils/hash"
+
+	"mpt/utils/hash"
 )
 
-func Sha3(value []byte) hash.Hash{
-	sha := sha3.NewLegacyLeccak256()
-	return hash.BytesToHash(sha.Sum(value))
+func Keccak256(value []byte) hash.Hash {
+	sha := sha3.NewLegacyKeccak256()
+	sha.Write(value)
+	return hash.BytesToHash(sha.Sum(nil))
 }
