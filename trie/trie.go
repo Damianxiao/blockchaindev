@@ -58,6 +58,10 @@ func (Children Children) Swap(i, j int) {
 	Children[i], Children[j] = Children[j], Children[i]
 }
 
+func NewTrieNode() *TrieNode {
+	return &TrieNode{}
+}
+
 // create a new trieTree or retrieve the trieTree from db
 func NewState(db kvstore.KVDatabase, root hash.Hash) *State {
 	if bytes.Equal(root[:], emptyRoot[:]) {
@@ -105,7 +109,7 @@ func (node TrieNode) Bytes() []byte {
 
 func (node TrieNode) Hash() hash.Hash {
 	data := node.Bytes()
-	return sha3.Sha3(data)
+	return sha3.Keccak256(data)
 }
 
 func (state State) Root() hash.Hash {
@@ -141,6 +145,7 @@ func (state *State) UpdateParents(path string, hash hash.Hash, paths []string, h
 	// connect the whole paths to one string
 	prefix := strings.Join(paths, "")
 	depth := len(paths)
+
 	// if the path is the same as the prefix , prove the path is complete match a single node
 	if strings.EqualFold(path, prefix) {
 		// update, because the path is the same , we do update , not insert
@@ -177,8 +182,36 @@ func (state *State) UpdateParents(path string, hash hash.Hash, paths []string, h
 		if len(lastNode.Path) != len(paths[depth-1]) {
 			// need fork
 			prefix := strings.Join(paths, "")
-			length := lengthPrefix(lastNode.Path, paths[depth-1])
-
+			// slice the part of the path
+			leafPath := path[len(prefix):]
+			node := NewTrieNode()
+			node.Path = leafPath
+			node.Leaf = true
+			node.value = hash
+			// save to db
+			state.SaveTrieNode(*node)
+			// update the lastNode to add the new child
+			lastNode.Children = append(lastNode.Children, Child{Path: leafPath, Hash: node.Hash()})
+			// sort the children
+			lastNode.sort()
+			SaveTrieNode(*lastNode)
+			// update the parents
+			childPath := lastNode.Path
+			childHash := lastNode.Hash()
+			for i := depth - 2; i >= 0; i-- {
+				node := state.TrieNodeFromHash(hashes[i])
+				for _,child := range node.Children {
+					if child.Path == childPath {
+						child.Hash = childHash
+						state.SaveTrieNode(*node)
+						childHash = node.Hash()
+						childPath = node.Path
+						break
+					}
+				}
+				if i == 0 {
+					state.root = node
+				}
 		} else {
 			//insert
 		}
